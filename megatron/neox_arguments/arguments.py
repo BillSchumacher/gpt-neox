@@ -153,7 +153,7 @@ class NeoXArgs(*BASE_CLASSES):
 
                 print("> setting tensorboard ...")
                 self.tensorboard_writer = SummaryWriter(log_dir=self.tensorboard_dir)
-            except (ModuleNotFoundError, ImportError):
+            except ImportError:
                 print(
                     "WARNING: TensorBoard writing requested but is not "
                     "available (are you using PyTorch 1.1.0 or later and do you have tensorboard installed?), "
@@ -171,11 +171,10 @@ class NeoXArgs(*BASE_CLASSES):
         overwrite_values: If provided, overwrite any values in the yamls with these values
         """
 
-        print(cls.__name__ + ".from_ymls() " + str(paths_to_yml_files), flush=True)
+        print(f"{cls.__name__}.from_ymls() {paths_to_yml_files}", flush=True)
 
-        # initialize an empty config dictionary to be filled by yamls
-        config = dict()
-        config_files = dict()
+        config_files = {}
+        config = {}
         # iterate of all to be loaded yaml files
         for conf_file_name in paths_to_yml_files:
 
@@ -213,8 +212,7 @@ class NeoXArgs(*BASE_CLASSES):
         )
         if len(params_not_in_config) > 0:
             logging.debug(
-                cls.__name__
-                + ".from_ymls() Configuration parameters not specified (using defaults): "
+                f"{cls.__name__}.from_ymls() Configuration parameters not specified (using defaults): "
                 + ", ".join(params_not_in_config)
             )
 
@@ -354,12 +352,12 @@ class NeoXArgs(*BASE_CLASSES):
 
         # enables us to pass in `125M` instead of `125M.yml`
         conf_files = [
-            (cf if (cf.endswith(".yml") or cf.endswith(".json")) else cf + ".yml")
+            cf if (cf.endswith(".yml") or cf.endswith(".json")) else f"{cf}.yml"
             for cf in conf_files
         ]
 
         # determine overwrite values
-        overwrite_values = dict()
+        overwrite_values = {}
         for k, v in vars(args_parsed).items():
             if k == "autotuning" and v is not None:
                 overwrite_values["autotuning_run"] = v
@@ -381,13 +379,13 @@ class NeoXArgs(*BASE_CLASSES):
                     neox_args.wandb_group = wandb.sdk.lib.runid.generate_id()
                 else:
                     # Concatenate the W&B group name with a randomized string to ensure uniqueness.
-                    neox_args.wandb_group += "_" + wandb.sdk.lib.runid.generate_id()
+                    neox_args.wandb_group += f"_{wandb.sdk.lib.runid.generate_id()}"
             except ModuleNotFoundError as e:
                 if e.name == "wandb":
                     e.msg += "\nWeights & Biases monitoring was requested but `wandb` was not found. Install `wandb` to use Weights & Biases, or set the `use_wandb` configuration option to a boolean false to disable Weights & Biases logging."
                 raise e
 
-            neox_args.wandb_group += "_" + wandb.util.generate_id()
+            neox_args.wandb_group += f"_{wandb.util.generate_id()}"
 
         neox_args.print()
 
@@ -433,7 +431,7 @@ class NeoXArgs(*BASE_CLASSES):
     @staticmethod
     def set_up_autotuning(encoded_config, overwrite_values):
         config = json.loads(base64.urlsafe_b64decode(encoded_config).decode("utf-8"))
-        overwrite_values = overwrite_values if overwrite_values else {}
+        overwrite_values = overwrite_values or {}
         for tuning_param in AUTOTUNING_ARGS:
             # TODO: This is for autotuning specifically, may cause surprises for someone with a weird setup
             if tuning_param in config:
@@ -443,13 +441,8 @@ class NeoXArgs(*BASE_CLASSES):
     @staticmethod
     def convert_key_value_to_command_line_arg(k, v):
         if isinstance(v, bool):
-            if v:
-                return [f"--{k}"]
-            else:
-                return []
-        if v is None:
-            return []
-        return [f"--{k}", str(v)]
+            return [f"--{k}"] if v else []
+        return [] if v is None else [f"--{k}", str(v)]
 
     def get_extra_deepspeed_args(self):
         """
@@ -460,7 +453,7 @@ class NeoXArgs(*BASE_CLASSES):
             *self.__class__.__bases__, only_non_defaults=True
         )
 
-        extra_ds_args = dict()
+        extra_ds_args = {}
 
         for key, value in self.deepspeed_extra_args.items():
             # Check to make sure the key is not already changed from defaults, and raise an exception if it is
@@ -476,7 +469,7 @@ class NeoXArgs(*BASE_CLASSES):
 
     def get_deepspeed_main_args(self):
 
-        args_list = list()
+        args_list = []
 
         if self.autotuning_run is not None:
             args_list.extend(
@@ -491,24 +484,24 @@ class NeoXArgs(*BASE_CLASSES):
                 continue
             configured_value = getattr(self, key)
 
-            if key == "force_multi":
-                if self.deepspeed_slurm or self.deepspeed_mpi:
-                    configured_value = True
+            if key == "force_multi" and (
+                self.deepspeed_slurm or self.deepspeed_mpi
+            ):
+                configured_value = True
             if configured_value != default_value:
                 args_list.extend(
                     self.convert_key_value_to_command_line_arg(key, configured_value)
                 )
 
         if self.deepspeed_slurm:
-            comment = getattr(self, "comment")
-            if comment:
+            if comment := getattr(self, "comment"):
                 args_list.extend(
                     self.convert_key_value_to_command_line_arg("comment", comment)
                 )
-            # master_address = os.environ['SLURM_JOB_NODELIST'].split('\n')[0]
-            # args_list.extend(
-            #    self.convert_key_value_to_command_line_arg('master_addr', master_address)
-            # )
+                # master_address = os.environ['SLURM_JOB_NODELIST'].split('\n')[0]
+                # args_list.extend(
+                #    self.convert_key_value_to_command_line_arg('master_addr', master_address)
+                # )
 
         if "DLTS_HOSTFILE" in os.environ:
             args_list.extend(
@@ -577,10 +570,9 @@ class NeoXArgs(*BASE_CLASSES):
         """
         returns a dict containing variables within deepspeed config
         """
-        config = self.get_parent_class_value_dict_extra_ds(
+        return self.get_parent_class_value_dict_extra_ds(
             NeoXArgsDeepspeedConfig, only_non_defaults=True
         )
-        return config
 
     @property
     def deepspeed_runner(self) -> dict:
@@ -610,7 +602,7 @@ class NeoXArgs(*BASE_CLASSES):
         takes a sequence of parent classes and returns corresponding values (with defaults set)
         """
         # TODO no Nones or non-defaults
-        result = dict()
+        result = {}
         for parent in parent_classes:
             for key, default_value in parent().defaults():
                 if key in ["tokenizer", "tensorboard_writer", "adlr_autoresume_object"]:
@@ -638,7 +630,7 @@ class NeoXArgs(*BASE_CLASSES):
 
         """
         # TODO no Nones or non-defaults
-        result = dict()
+        result = {}
         for parent in parent_classes:
             for key, default_value in parent().defaults():
                 if key in [
@@ -656,7 +648,7 @@ class NeoXArgs(*BASE_CLASSES):
 
         if self.deepspeed_extra_args is not None:
             extra_ds_args = self.get_extra_deepspeed_args()
-            result.update(extra_ds_args)
+            result |= extra_ds_args
 
         return result
 
@@ -683,39 +675,40 @@ class NeoXArgs(*BASE_CLASSES):
             os.makedirs(self.log_dir, exist_ok=True)
             hostname = gethostname()
             file_prefix = os.path.join(self.log_dir, hostname)
-            Tee(file_prefix + "_stdout.txt", err=False)
-            Tee(file_prefix + "_stderr.txt", err=True)
+            Tee(f"{file_prefix}_stdout.txt", err=False)
+            Tee(f"{file_prefix}_stderr.txt", err=True)
 
     def print(self):
         """Print arguments."""
-        if self.rank == 0 or self.rank is None:
-            print("-------------------- arguments --------------------", flush=True)
-            str_list = []
-            for arg in vars(self):
-                # add arg + value
-                dots = "." * (32 - len(arg))
-                value = getattr(self, arg)
-                print_str = "  {} {} {}".format(arg, dots, value)
+        if self.rank != 0 and self.rank is not None:
+            return
+        print("-------------------- arguments --------------------", flush=True)
+        str_list = []
+        for arg in vars(self):
+            # add arg + value
+            dots = "." * (32 - len(arg))
+            value = getattr(self, arg)
+            print_str = f"  {arg} {dots} {value}"
 
-                # add info 'default or updated'
-                field_def = self.__dataclass_fields__.get(arg)
-                if field_def is not None:
-                    default_info = (
-                        "default" if value == field_def.default else "updated"
-                    )
-                else:
-                    default_info = ""
-                dots = "." * (64 - len(print_str))
-                print_str += dots
-                str_list.append({"print_str": print_str, "default_info": default_info})
+            # add info 'default or updated'
+            field_def = self.__dataclass_fields__.get(arg)
+            if field_def is not None:
+                default_info = (
+                    "default" if value == field_def.default else "updated"
+                )
+            else:
+                default_info = ""
+            dots = "." * (64 - len(print_str))
+            print_str += dots
+            str_list.append({"print_str": print_str, "default_info": default_info})
 
-            for arg in sorted(
-                sorted(str_list, key=lambda x: x["print_str"].lower()),
-                key=lambda x: x["default_info"],
-                reverse=True,
-            ):
-                print(arg["print_str"] + arg["default_info"], flush=True)
-            print("---------------- end of arguments ----------------", flush=True)
+        for arg in sorted(
+            sorted(str_list, key=lambda x: x["print_str"].lower()),
+            key=lambda x: x["default_info"],
+            reverse=True,
+        ):
+            print(arg["print_str"] + arg["default_info"], flush=True)
+        print("---------------- end of arguments ----------------", flush=True)
 
     ############################################################################################################################
     # start of calculations and derived values
@@ -740,10 +733,7 @@ class NeoXArgs(*BASE_CLASSES):
 
         if self.rank == 0:
             print(
-                self.__class__.__name__
-                + ".configure_distributed_args() using world size: {} and model-parallel size: {} ".format(
-                    self.world_size, self.model_parallel_size
-                ),
+                f"{self.__class__.__name__}.configure_distributed_args() using world size: {self.world_size} and model-parallel size: {self.model_parallel_size} ",
                 flush=True,
             )
 

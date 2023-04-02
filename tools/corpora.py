@@ -57,9 +57,7 @@ class DataDownloader(ABC):
                 vocab_file = f"{data_dir}/gpt2-vocab.json"
             elif tokenizer_type == "HFGPT2Tokenizer":
                 vocab_file = "gpt2"
-            elif tokenizer_type == "CharLevelTokenizer":
-                pass
-            else:
+            elif tokenizer_type != "CharLevelTokenizer":
                 assert vocab_file is not None, "No vocab file provided"
         if num_workers is None:
             num_workers = cpu_count()
@@ -155,16 +153,17 @@ class DataDownloader(ABC):
             cmd += f"--num-docs {self.num_docs} "
 
         if self.ftfy:
-            cmd += f"--ftfy "
+            cmd += "--ftfy "
 
         os.system(cmd)
 
     def prepare(self):
-        if self._force_redownload:
+        if (
+            not self._force_redownload
+            and not self.exists()
+            or self._force_redownload
+        ):
             self.download()
-        else:
-            if not self.exists():
-                self.download()
 
         self.tokenize()
 
@@ -348,10 +347,7 @@ def prepare_dataset(
         raise NotImplementedError(
             f'Dataset "{dataset_name}" not recognized - please choose from {list(DATA_DOWNLOADERS.keys())}'
         )
-    elif DownloaderClass == "pass":
-        # pass on building dataset (for unit tests)
-        pass
-    else:
+    elif DownloaderClass != "pass":
         num_workers = 1 if dataset_name == "enwik8" else num_workers
         d = DownloaderClass(
             tokenizer_type=tokenizer_type,

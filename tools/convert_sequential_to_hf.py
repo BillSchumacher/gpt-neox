@@ -43,18 +43,18 @@ Please investigate carefully whether your model is compatible with all architect
 def load_partitions(input_checkpoint_path, mp_partitions) -> List[torch.Tensor]:
     """Returns a list containing all states from a model (across MP partitions)"""
 
-    loaded_tp_ranks = [
+    return [
         torch.load(
             os.path.join(
                 input_checkpoint_path,
                 f"mp_rank_{i:02}_model_states.pt",
             ),
-            map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            map_location=torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu"
+            ),
         )
         for i in range(mp_partitions)
     ]
-
-    return loaded_tp_ranks
 
 
 def get_state(
@@ -113,18 +113,14 @@ def create_config(neox_config):
             1  # pad defaulting to 1. follows convention from GPT-NeoX-20b tokenizer
         )
 
-    # TODO: change the default value here based on discussion regarding `gpt_j_tied` config parameter's default
-    use_tied_lns = get_key(neox_config, "gpt-j-tied", False)
-
-    if use_tied_lns:
+    if use_tied_lns := get_key(neox_config, "gpt-j-tied", False):
         raise NotImplementedError(
             """ERROR: Huggingface Transformers does not yet support a single shared layernorm
                 per transformer block for GPT-NeoX models trained  w/ GPT-J parallel residuals.
                 See https://github.com/EleutherAI/gpt-neox/pull/481 for further details."""
         )
 
-    # set all config values.
-    hf_config = GPTNeoXConfig(
+    return GPTNeoXConfig(
         vocab_size=args.padded_vocab_size,
         hidden_size=get_key(neox_config, "hidden-size"),
         num_hidden_layers=get_key(neox_config, "num-layers"),
@@ -133,16 +129,19 @@ def create_config(neox_config):
         hidden_act=get_key(neox_config, "activation", default="gelu"),
         rotary_pct=get_key(neox_config, "rotary-pct", default=1.0),
         rotary_emb_base=get_key(neox_config, "rotary-emb-base", default=10000),
-        max_position_embeddings=get_key(neox_config, "max-position-embeddings"),
+        max_position_embeddings=get_key(
+            neox_config, "max-position-embeddings"
+        ),
         initializer_range=get_key(neox_config, "init-method-std", 0.02),
         layer_norm_eps=get_key(neox_config, "layernorm-epsilon", 1e-5),
         use_cache=True,
         bos_token_id=tokenizer.eod,
         eos_token_id=tokenizer.eod,
-        tie_word_embeddings=(not get_key(neox_config, "no-weight-tying", False)),
+        tie_word_embeddings=(
+            not get_key(neox_config, "no-weight-tying", False)
+        ),
         use_parallel_residual=get_key(neox_config, "gpt-j-residual", False),
     )
-    return hf_config
 
 
 def convert(input_checkpoint_path, loaded_config, output_checkpoint_path):
@@ -183,16 +182,13 @@ def convert(input_checkpoint_path, loaded_config, output_checkpoint_path):
         # get layer from hf model
         hf_layer = hf_model.gpt_neox.layers[layer_i]
 
-        # + 2 bc of embed layer and a dummy _pre_transformer_block
-        state_dict = {}
-        for key in [
-            "attention.dense.weight",
-            "mlp.dense_4h_to_h.weight",
-        ]:
-            state_dict[key] = torch.cat(
-                get_state(loaded_tp_ranks, key, layer_i + 2), dim=1
-            )
-
+        state_dict = {
+            key: torch.cat(get_state(loaded_tp_ranks, key, layer_i + 2), dim=1)
+            for key in [
+                "attention.dense.weight",
+                "mlp.dense_4h_to_h.weight",
+            ]
+        }
         # average layernorm stats over mp ranks
         for key in [
             "input_layernorm.weight",
