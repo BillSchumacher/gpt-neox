@@ -139,7 +139,7 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
         ctx.max_seqlen = max_seqlen
         ctx.softmax_scale = softmax_scale
         ctx.causal = causal
-        return out if not return_softmax else (out, softmax_lse, S_dmask)
+        return (out, softmax_lse, S_dmask) if return_softmax else out
 
     @staticmethod
     def backward(ctx, dout, *args):

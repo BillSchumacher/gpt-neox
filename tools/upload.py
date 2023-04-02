@@ -24,8 +24,6 @@ try:
     create_repo(repo_name, repo_type="model", private=False)
 except:
     print("repo {repo_name} already exists!")
-    pass
-
 files = os.listdir(converted_ckpt)
 
 api = HfApi()

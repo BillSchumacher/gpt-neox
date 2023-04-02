@@ -46,25 +46,21 @@ def _get_coord_data(
             model.train()
             optimizer = optcls(model)
             for step in range(nsteps + 1):
-                remove_hooks = []
-                # add hooks
-                for name, module in model.named_modules():
-                    if filter_module_by_name and not filter_module_by_name(name):
-                        continue
-                    remove_hooks.append(
-                        module.register_forward_hook(
-                            mup_coord_check._record_coords(
-                                df,
-                                width,
-                                name,
-                                step + 1,
-                                output_fdict=output_fdict,
-                                input_fdict=input_fdict,
-                                param_fdict=param_fdict,
-                            )
+                remove_hooks = [
+                    module.register_forward_hook(
+                        mup_coord_check._record_coords(
+                            df,
+                            width,
+                            name,
+                            step + 1,
+                            output_fdict=output_fdict,
+                            input_fdict=input_fdict,
+                            param_fdict=param_fdict,
                         )
                     )
-
+                    for name, module in model.named_modules()
+                    if not filter_module_by_name or filter_module_by_name(name)
+                ]
                 # train for a step
                 loss_dict, skipped_iter = train_step(
                     neox_args=neox_args,
